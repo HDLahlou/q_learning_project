@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 
 import rospy, cv2, numpy
+import math
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image, LaserScan
 from geometry_msgs.msg import Twist
 import keras_ocr
 import matplotlib.pyplot as plt
 from io import BytesIO
+import moveit_commander
+import moveit_msgs.msg
 
 
 
 class Perception:
 
     def __init__(self):
+        self.init_flag = False
+
         # set up ROS / OpenCV bridge
         self.bridge = CvBridge()
 
+        # Init Constants
+        
+        # Color Detection Range 
         lower_red = numpy.array([0, 100, 100])
         upper_red = numpy.array([10, 255, 255])
         self.red_ranges = [lower_red, upper_red]
@@ -32,35 +40,35 @@ class Perception:
         upper_black = numpy.array([1, 10, 10])
         self.black_ranges = [lower_black, upper_black]
 
-        # Flag if facing towards cubes, triggers search for cubes/black colors
-        self.facing_towards_blocks = False
-        # Flag for reading cubes and detecting matching text
-        self.reading_cubes = False
-        # Flag to help stop callback from constantly running and computing
-        self.seen_first_image = False
-        # Flag for once found the desired cube
-        self.found = False
-        # Flag for when robot is correctly orriented towards cube goal
-        self.facing_target = False
-        # Flag for when robot is in front of cube
+        # Arm and Grip positions
+        arm_joint_goal = [0.0, .2, .8, -1.2]
+        gripper_joint_goal = [0.018,0.018]
+        self.lower_arm = [arm_joint_goal, gripper_joint_goal]
 
-        self.has_arrived = False
-        self.scan_regions = {}
-        self.prediction_group = []
+        arm_joint_goal = [0.0, -.2, .2, -0.9]
+        gripper_joint_goal = [0.005,0.005]
+        self.raise_arm = [arm_joint_goal, gripper_joint_goal]
 
-        # Flags to determine if searching for cube or dumbells
-        self.searching_for_color = False
-        self.read_text = True
+
+        self.reset_states()
     
-        self.pipeline = keras_ocr.pipeline.Pipeline()
+        self.pipeline = keras_ocr.pipeline.Pipeline(scale=1)
 
         # subscribe to the robot's RGB camera data stream
         self.image_sub = rospy.Subscriber('camera/rgb/image_raw',
                 Image, self.image_callback)
 
+        # CMD_VEL
         self.velocity_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
 
+        # LaserScan
         self.scan_sub = rospy.Subscriber('scan', LaserScan, self.scan_callback)
+
+        # MoveIt Arm Manipulator
+        self.move_group_arm = moveit_commander.MoveGroupCommander("arm")
+        self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
+
+        # Flag for when everything is done initializing
         self.init_flag = True
         # download pre-trained model
 
@@ -76,7 +84,35 @@ class Perception:
             'left':   min(min(msg.ranges[(int(4*size/5)): (size-1)]), 10),
         }
         self.scan_regions = regions
+        # print(regions)
 
+    def reset_states(self):
+        # Flag if facing towards cubes, triggers search for cubes/black colors
+        self.facing_towards_blocks = False
+        # Flag for reading cubes and detecting matching text
+        self.reading_cubes = False
+        # Flag to help stop callback from constantly running and computing
+        self.seen_first_image = False
+        # Flag for once found the desired cube
+        self.found = False
+        # Flag for when robot is correctly orriented towards cube goal
+        self.facing_target = False
+        # Flag for when robot is in front of cube
+        self.has_arrived = False
+
+        # Flag for initializing arm position
+        self.arm_in_low_position = False
+        # Flag for when robot is in front of dumbell
+        self.found_dumbell = False
+
+        self.scan_regions = {}
+        self.prediction_group = []
+
+        # Flags to determine if searching for cube or dumbells
+        self.searching_for_color = True
+        self.read_text = False
+
+    # Functions for cube detection
 
     def detect_black(self, msg):
         image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
@@ -96,14 +132,21 @@ class Perception:
                 cy = int(M['m01']/M['m00'])
 
                 xx = w/2
-                if(cx == xx):
+                et = xx - cx
+                print(et)
+                if(abs(et) <= 20):
+                    print("Oriented")
                     self.facing_towards_blocks = True
+                    vel_msg = Twist()
+                    vel_msg.linear.x = 0
+                    vel_msg.angular.z = 0
+                    self.velocity_pub.publish(vel_msg)
+
                 else:
                     vel_msg = Twist()
                     vel_msg.linear.x = 0
                     kp = .001
                     # Calc of offset on center of yellow
-                    et = xx - cx
                     # Calculation to center
                     pc = kp*et
                     vel_msg.angular.z = pc
@@ -114,8 +157,12 @@ class Perception:
             vel_msg.angular.z = .1
             self.velocity_pub.publish(vel_msg)
 
+
     def face_cubes(self, msg):
         if (not self.seen_first_image):
+            prediction_groups = None
+            self.prediction_group = None
+
             vel_msg = Twist()
             vel_msg.linear.x = 0
             vel_msg.angular.z = 0
@@ -125,11 +172,14 @@ class Perception:
             
             # call the recognizer on the list of images
             prediction_groups = self.pipeline.recognize([image])
-            input = '3'
-
+            input = '1'
+            input_alternative = input
+            if input == '1':
+                input_alternative = 'l'
             while prediction_groups is None:
                 print("Waiting")
                 pass
+            print(prediction_groups)
 
             self.found = False
             if len(prediction_groups[0]) == 0:
@@ -140,7 +190,7 @@ class Perception:
             if len(prediction_groups[0]) > 0:
                 print("Inspecting predictions")
                 for x in prediction_groups[0]:
-                    if x[0] == input:
+                    if x[0] == input or x[0] == input_alternative:
                         print(x[0])
                         self.found = True
                         self.prediction_group = x
@@ -150,65 +200,79 @@ class Perception:
                 self.seen_first_image = False
                 vel_msg = Twist()
                 vel_msg.linear.x = 0
-                vel_msg.angular.z = .2
+                vel_msg.angular.z = .1
                 self.velocity_pub.publish(vel_msg)
-                rospy.sleep(1)
+                rospy.sleep(.5)
+
 
     def approach_cube(self, msg):
-        if(not self.facing_target):
-            image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
-            h, w, d = image.shape
-            print(self.prediction_group)
-            center_x = w/2
-            adjust = (w - (self.prediction_group[1][0][0] + self.prediction_group[1][1][0]))/2
-            print(adjust)
-            if abs(adjust) > 80:
-                kp = .001
-                pc = kp*adjust
-                vel_msg = Twist()
-                vel_msg.angular.z = pc
-                self.velocity_pub.publish(vel_msg)
-                rospy.sleep(0.5)
-                vel_msg.angular.z = 0
-                self.velocity_pub.publish(vel_msg)
-                self.found = False
-                self.reading_cubes = False
-                self.seen_first_image = False
-            else:
-                print("Centered")
-                self.facing_target = True
+        if self.prediction_group is None:
+            print("No prediction")
         else:
-            # Orientation found
-            vel_msg = Twist()
-            # Desired distance to stop from nearest object
-            desired_distance = .75
-            vel_msg.linear.x = .0
-            print("Left")
-            print(self.scan_regions["left"])
-            print("Right")
-            print(self.scan_regions["right"])
-
-            if self.scan_regions["left"] > desired_distance or self.scan_regions["right"] > desired_distance:
-                vel_msg.linear.x = .2
+            if(not self.facing_target):
+                image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
+                h, w, d = image.shape
+                print(self.prediction_group)
+                center_x = w/2
+                adjust = (w - (self.prediction_group[1][0][0] + self.prediction_group[1][1][0]))/2
+                print(adjust)
+                if abs(adjust) > 100:
+                    # TODO Make sure it orients properly
+                    kp = .001
+                    pc = kp*adjust
+                    vel_msg = Twist()
+                    vel_msg.angular.z = pc
+                    self.velocity_pub.publish(vel_msg)
+                    rospy.sleep(0.1)
+                    vel_msg.angular.z = 0
+                    self.velocity_pub.publish(vel_msg)
+                    self.found = False
+                    self.reading_cubes = False
+                    self.seen_first_image = False
+                else:
+                    print("Centered")
+                    self.facing_target = True
             else:
-                vel_msg.linear.x = 0
-                self.has_arrived = True
-            self.velocity_pub.publish(vel_msg)
+                # Orientation found
+                vel_msg = Twist()
+                # Desired distance to stop from nearest object
+                desired_distance = .75
+                vel_msg.linear.x = .0
+                print("Left")
+                print(self.scan_regions["left"])
+                print("Right")
+                print(self.scan_regions["right"])
+                regions = self.scan_regions
+                if regions["left"] > desired_distance or regions["right"] > desired_distance:
+                    vel_msg.linear.x = .2
+                else:
+                    vel_msg.linear.x = 0
+                    self.has_arrived = True
+                self.velocity_pub.publish(vel_msg)
 
-
-
-
+    # Main Logic for Cube logic
 
     def char_image_callback(self, msg):
         if (not self.facing_towards_blocks):
+            print("Start Detect Black")
             self.detect_black(msg)
         elif (not self.reading_cubes):
-            # print("Face Cubes")
+            print("Face Cubes")
             self.face_cubes(msg)
         elif (self.found and (not self.has_arrived)):
             self.approach_cube(msg)
         elif self.has_arrived:
-            print("Drop dumbell")
+            self.manip_arm_pos(msg)
+            vel_msg = Twist()
+            vel_msg.linear.x = -.2
+            vel_msg.angular.z = 0
+            self.velocity_pub.publish(vel_msg)
+            rospy.sleep(1)
+            self.reset_states()
+
+
+
+    # Functions for colored dumbell detection
 
     def color_detect_and_move(self, msg):
         # converts the incoming ROS message to OpenCV format and HSV (hue, saturation, value)
@@ -239,10 +303,14 @@ class Perception:
                 xx = w/2
                 yy = 370
                 vel_msg = Twist()
-                if cy < 280:
+                print(cy)
+                print(self.scan_regions["left"])
+                if cy < 300:
                     vel_msg.linear.x = .1
-                else:
+                if cy > 200 and (self.scan_regions["left"] < .2 and self.scan_regions["right"] < .2):
                     vel_msg.linear.x = 0
+                    self.found_dumbell = True
+
 
                 print("x: " + str(cx) + "y: " + str(cy))
                 kp = .005
@@ -258,13 +326,42 @@ class Perception:
             vel_msg.angular.z = .3
             self.velocity_pub.publish(vel_msg)
 
+    def manip_arm_pos(self, msg):
+        arm_joint_goal = self.lower_arm[0]
+        gripper_joint_goal = self.lower_arm[1]
+
+        if self.arm_in_low_position:
+            arm_joint_goal = self.raise_arm[0]
+            gripper_joint_goal = self.raise_arm[1]
+
+        self.move_group_arm.go(arm_joint_goal, wait=True)
+        self.move_group_arm.stop()
+
+        self.move_group_gripper.go(gripper_joint_goal, wait=True)
+        self.move_group_gripper.stop()
+        self.arm_in_low_position = not self.arm_in_low_position
+
+
+    def dumbell_callback(self,msg):
+        if(not self.arm_in_low_position):
+            print("Lower")
+            self.manip_arm_pos(msg)
+        elif (not self.found_dumbell):
+            self.color_detect_and_move(msg)
+        else:
+            self.manip_arm_pos(msg)
+            self.read_text = True
+            self.searching_for_color = False
+        
+
+    # Determines if looking for cube or dumbell
 
     def image_callback(self, msg):
         if self.init_flag:
             if self.read_text:
                 self.char_image_callback(msg)
             elif self.searching_for_color:
-                self.color_detect_and_move(msg)
+                self.dumbell_callback(msg)
         
 
 
