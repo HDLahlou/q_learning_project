@@ -13,7 +13,7 @@ import moveit_msgs.msg
 
 
 
-class Perception:
+class Actions:
 
     def __init__(self):
         self.init_flag = False
@@ -45,11 +45,13 @@ class Perception:
         gripper_joint_goal = [0.018,0.018]
         self.lower_arm = [arm_joint_goal, gripper_joint_goal]
 
-        arm_joint_goal = [0.0, -.2, .2, -0.9]
+        arm_joint_goal = [0.0, -.3, .1, -0.9]
         gripper_joint_goal = [0.005,0.005]
         self.raise_arm = [arm_joint_goal, gripper_joint_goal]
 
-
+        self.num_runs = -1
+        self.input_color = ['green', 'red', 'blue']
+        self.input_num = ['1', '2', '3']
         self.reset_states()
     
         self.pipeline = keras_ocr.pipeline.Pipeline(scale=1)
@@ -111,6 +113,9 @@ class Perception:
         # Flags to determine if searching for cube or dumbells
         self.searching_for_color = True
         self.read_text = False
+        self.num_runs += 1
+        if self.num_runs == 3:
+            self.init_flag = False
 
     # Functions for cube detection
 
@@ -172,7 +177,7 @@ class Perception:
             
             # call the recognizer on the list of images
             prediction_groups = self.pipeline.recognize([image])
-            input = '1'
+            input = self.input_num[self.num_runs]
             input_alternative = input
             if input == '1':
                 input_alternative = 'l'
@@ -248,6 +253,7 @@ class Perception:
                 else:
                     vel_msg.linear.x = 0
                     self.has_arrived = True
+                    self.read_text = False
                 self.velocity_pub.publish(vel_msg)
 
     # Main Logic for Cube logic
@@ -261,14 +267,7 @@ class Perception:
             self.face_cubes(msg)
         elif (self.found and (not self.has_arrived)):
             self.approach_cube(msg)
-        elif self.has_arrived:
-            self.manip_arm_pos(msg)
-            vel_msg = Twist()
-            vel_msg.linear.x = -.2
-            vel_msg.angular.z = 0
-            self.velocity_pub.publish(vel_msg)
-            rospy.sleep(1)
-            self.reset_states()
+
 
 
 
@@ -279,7 +278,7 @@ class Perception:
         image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
 
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        input = "green"
+        input = self.input_color[self.num_runs]
         if input == "red":
             color_range = self.red_ranges
         elif input == "blue":
@@ -352,7 +351,17 @@ class Perception:
             self.manip_arm_pos(msg)
             self.read_text = True
             self.searching_for_color = False
-        
+
+    def put_down_dumbell(self, msg):
+        self.manip_arm_pos(msg)
+        vel_msg = Twist()
+        vel_msg.linear.x = -.2
+        vel_msg.angular.z = 0
+        self.velocity_pub.publish(vel_msg)
+        rospy.sleep(1)
+        vel_msg.linear.x = 0
+        self.velocity_pub.publish(vel_msg)
+        self.reset_states()
 
     # Determines if looking for cube or dumbell
 
@@ -362,6 +371,8 @@ class Perception:
                 self.char_image_callback(msg)
             elif self.searching_for_color:
                 self.dumbell_callback(msg)
+            elif self.has_arrived:
+                self.put_down_dumbell(msg)
         
 
 
@@ -370,5 +381,5 @@ class Perception:
             
 if __name__ == '__main__':
     rospy.init_node('Perception')
-    follower = Perception()
+    follower = Actions()
     follower.run()
