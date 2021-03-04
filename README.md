@@ -116,3 +116,4 @@ If we had more time, we would determine a method to properly wait for *keras_ocr
 - TODO
 
 ### Gifs
+![Robot Actions Gif](test_run.gif)
