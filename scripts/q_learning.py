@@ -31,7 +31,7 @@ class QLearning(object):
         self.action_table = []
         for db in range(3):
             for block in range(1,4):
-                self.action_table.append(self.dumbells[db], block)
+                self.action_table.append((self.dumbells[db], block))
         
         # create an array that represents every possible state
         self.state_matrix = []
@@ -161,6 +161,7 @@ class QLearning(object):
             if self.iterations_converging >= 300:
                 self.converged = True
                 self.state = 0
+                self.change_subscriptions()
                 # find best sequential actions for robot at each stage
                 for a in range(1,3):
                     row = self.q_matrix.q_matrix[self.state].q_matrix_row
@@ -170,14 +171,18 @@ class QLearning(object):
                     # add action to final list of actions
                     self.final_action_seq.append(self.action_table[best_action])
                     
-                    # # publish chosen action
-                    # robot_action = RobotMoveDBToBlock(robot_db = self.dumbells[best_action[0]], block_id = best_action[1])
-                    # self.robot_action_pub.publish(robot_action)
+                    # publish chosen action
+                    robot_action = RobotMoveDBToBlock(robot_db = self.dumbells[best_action[0]], block_id = best_action[1])
+                    self.robot_move_pub.publish(robot_action)
 
                     # get next state
                     self.state = self.action_matrix[self.state].index(best_action)
                                 
                 print("matrix converged")
+                
+    def change_subscriptions(self):
+        self.robot_action_pub.unregister()
+        self.robot_move_pub = rospy.Publisher("/q_learning/robot_move", RobotMoveDBToBlock, queue_size=10)
 
     def run(self):
         rospy.spin()

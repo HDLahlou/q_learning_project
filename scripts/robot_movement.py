@@ -14,7 +14,7 @@ from q_learning_project.msg import RobotMoveDBToBlock
 
 
 
-class Actions:
+class Movement:
 
     def __init__(self):
         # Flag for once initialization is over
@@ -72,9 +72,9 @@ class Actions:
         self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
 
         # Q Learning Action Subscriber
-        self.q_learning = rospy.Subscriber('/q_learning/robot_action', RobotMoveDBToBlock, self.q_learning_callback)
+        self.q_learning = rospy.Subscriber('/q_learning/robot_move', RobotMoveDBToBlock, self.q_learning_callback)
         # Flag for when everything is done initializing
-        self.init_flag = True
+        self.init_flag = False
 
 
     def q_learning_callback(self, msg):
@@ -387,6 +387,6 @@ class Actions:
         rospy.spin()
             
 if __name__ == '__main__':
-    rospy.init_node('RobotActions')
-    follower = Actions()
+    rospy.init_node('RobotMovement')
+    follower = Movement()
     follower.run()
