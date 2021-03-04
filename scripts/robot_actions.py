@@ -16,6 +16,7 @@ import moveit_msgs.msg
 class Actions:
 
     def __init__(self):
+        # Flag for once initialization is over
         self.init_flag = False
 
         # set up ROS / OpenCV bridge
@@ -45,13 +46,12 @@ class Actions:
         gripper_joint_goal = [0.018,0.018]
         self.lower_arm = [arm_joint_goal, gripper_joint_goal]
 
-        arm_joint_goal = [0.0, -.3, .1, -0.9]
+        arm_joint_goal = [0.0, -.2, .1, -0.6]
         gripper_joint_goal = [0.005,0.005]
         self.raise_arm = [arm_joint_goal, gripper_joint_goal]
 
-        self.num_runs = -1
-        self.input_color = ['green', 'red', 'blue']
-        self.input_num = ['1', '2', '3']
+        self.input_color = 'green'
+        self.input_num = '1'
         self.reset_states()
     
         self.pipeline = keras_ocr.pipeline.Pipeline(scale=1)
@@ -72,9 +72,9 @@ class Actions:
 
         # Flag for when everything is done initializing
         self.init_flag = True
-        # download pre-trained model
 
 
+    # Callback function for reading scan data from Lidar and setting it in self object
     def scan_callback(self, msg):
         size = len(msg.ranges)
         # Determines the ranges for scan, finds each "side"
@@ -86,8 +86,9 @@ class Actions:
             'left':   min(min(msg.ranges[(int(4*size/5)): (size-1)]), 10),
         }
         self.scan_regions = regions
-        # print(regions)
 
+
+    # Function to reset constants to prevent duplicate code
     def reset_states(self):
         # Flag if facing towards cubes, triggers search for cubes/black colors
         self.facing_towards_blocks = False
@@ -113,25 +114,17 @@ class Actions:
         # Flags to determine if searching for cube or dumbells
         self.searching_for_color = True
         self.read_text = False
-        self.num_runs += 1
-        if self.num_runs == 3:
-            self.init_flag = False
 
-    # Functions for cube detection
 
+    # Functions for detecting if facing towards cube (sees black text)
     def detect_black(self, msg):
         image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
 
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
         mask = cv2.inRange(hsv, self.black_ranges[0], self.black_ranges[1])
-
         h, w, d = image.shape
-
-        # using moments() function, the center of the yellow pixels is determined
         M = cv2.moments(mask)
-        # print(M)
-        # if there are any yellow pixels found
+
         if M['m00'] > 0:
                 cx = int(M['m10']/M['m00'])
                 cy = int(M['m01']/M['m00'])
@@ -139,6 +132,7 @@ class Actions:
                 xx = w/2
                 et = xx - cx
                 print(et)
+                # "Centered on black, move on to next state"
                 if(abs(et) <= 20):
                     print("Oriented")
                     self.facing_towards_blocks = True
@@ -146,16 +140,15 @@ class Actions:
                     vel_msg.linear.x = 0
                     vel_msg.angular.z = 0
                     self.velocity_pub.publish(vel_msg)
-
+                # Rotate to keep looking for black
                 else:
                     vel_msg = Twist()
                     vel_msg.linear.x = 0
                     kp = .001
-                    # Calc of offset on center of yellow
-                    # Calculation to center
                     pc = kp*et
                     vel_msg.angular.z = pc
                     self.velocity_pub.publish(vel_msg)
+        # Edge case to handle rotating if no black has been seen yet
         else:
             vel_msg = Twist()
             vel_msg.linear.x = 0
@@ -163,6 +156,7 @@ class Actions:
             self.velocity_pub.publish(vel_msg)
 
 
+    # This is the character recognition function for identifying numbered blocks
     def face_cubes(self, msg):
         if (not self.seen_first_image):
             prediction_groups = None
@@ -172,21 +166,28 @@ class Actions:
             vel_msg.linear.x = 0
             vel_msg.angular.z = 0
             self.velocity_pub.publish(vel_msg)
+
             self.seen_first_image = True
             image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
             
-            # call the recognizer on the list of images
+            # call the recognizer on the image
             prediction_groups = self.pipeline.recognize([image])
-            input = self.input_num[self.num_runs]
+            input = self.input_num
             input_alternative = input
+
+            # Handles edge case of 1 being recognized as l
             if input == '1':
                 input_alternative = 'l'
+
+            # Makes function wait until there is a prediction result
             while prediction_groups is None:
                 print("Waiting")
                 pass
-            print(prediction_groups)
 
+            print(prediction_groups)
             self.found = False
+
+            # Conditionals to determine if identified character matches desired value
             if len(prediction_groups[0]) == 0:
                 self.seen_first_image = False
                 self.facing_towards_blocks = False
@@ -210,19 +211,22 @@ class Actions:
                 rospy.sleep(.5)
 
 
+    # Function for approaching cube and recentering based on block window
     def approach_cube(self, msg):
         if self.prediction_group is None:
             print("No prediction")
         else:
             if(not self.facing_target):
+                # Logic to orient robot based on center of recognition box
                 image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
                 h, w, d = image.shape
                 print(self.prediction_group)
                 center_x = w/2
                 adjust = (w - (self.prediction_group[1][0][0] + self.prediction_group[1][1][0]))/2
                 print(adjust)
+
+                # This calculates the rotation value for centering robot
                 if abs(adjust) > 100:
-                    # TODO Make sure it orients properly
                     kp = .001
                     pc = kp*adjust
                     vel_msg = Twist()
@@ -237,6 +241,7 @@ class Actions:
                 else:
                     print("Centered")
                     self.facing_target = True
+            # Handles approaching block after robot is oriented
             else:
                 # Orientation found
                 vel_msg = Twist()
@@ -248,6 +253,8 @@ class Actions:
                 print("Right")
                 print(self.scan_regions["right"])
                 regions = self.scan_regions
+
+                # Robot is close enough for putting down dumbbell
                 if regions["left"] > desired_distance or regions["right"] > desired_distance:
                     vel_msg.linear.x = .2
                 else:
@@ -256,29 +263,24 @@ class Actions:
                     self.read_text = False
                 self.velocity_pub.publish(vel_msg)
 
-    # Main Logic for Cube logic
 
+    # Main Logic for Cube logic
     def char_image_callback(self, msg):
         if (not self.facing_towards_blocks):
-            print("Start Detect Black")
             self.detect_black(msg)
         elif (not self.reading_cubes):
-            print("Face Cubes")
             self.face_cubes(msg)
         elif (self.found and (not self.has_arrived)):
             self.approach_cube(msg)
 
 
-
-
     # Functions for colored dumbell detection
-
     def color_detect_and_move(self, msg):
         # converts the incoming ROS message to OpenCV format and HSV (hue, saturation, value)
         image = self.bridge.imgmsg_to_cv2(msg,'bgr8')
-
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        input = self.input_color[self.num_runs]
+
+        input = self.input_color
         if input == "red":
             color_range = self.red_ranges
         elif input == "blue":
@@ -288,13 +290,9 @@ class Actions:
 
 
         mask = cv2.inRange(hsv,color_range[0], color_range[1])
-
         h, w, d = image.shape
-
-        # using moments() function, the center of the yellow pixels is determined
         M = cv2.moments(mask)
-        # print(M)
-        # if there are any yellow pixels found
+
         if M['m00'] > 0:
                 cx = int(M['m10']/M['m00'])
                 cy = int(M['m01']/M['m00'])
@@ -313,7 +311,6 @@ class Actions:
 
                 print("x: " + str(cx) + "y: " + str(cy))
                 kp = .005
-                # Calc of offset on center of yellow
                 et = xx - cx
                 # Calculation to center
                 pc = kp*et
@@ -325,6 +322,7 @@ class Actions:
             vel_msg.angular.z = .3
             self.velocity_pub.publish(vel_msg)
 
+    # Based on current state of arm, lowers or raises the arm
     def manip_arm_pos(self, msg):
         arm_joint_goal = self.lower_arm[0]
         gripper_joint_goal = self.lower_arm[1]
@@ -333,14 +331,16 @@ class Actions:
             arm_joint_goal = self.raise_arm[0]
             gripper_joint_goal = self.raise_arm[1]
 
+        # Sets arm joints
         self.move_group_arm.go(arm_joint_goal, wait=True)
         self.move_group_arm.stop()
 
+        # Sets grip joints
         self.move_group_gripper.go(gripper_joint_goal, wait=True)
         self.move_group_gripper.stop()
         self.arm_in_low_position = not self.arm_in_low_position
 
-
+    # Callback for handling picking up a dumbbell
     def dumbell_callback(self,msg):
         if(not self.arm_in_low_position):
             print("Lower")
@@ -352,6 +352,7 @@ class Actions:
             self.read_text = True
             self.searching_for_color = False
 
+    # Function for putting down dumbbell and backing away
     def put_down_dumbell(self, msg):
         self.manip_arm_pos(msg)
         vel_msg = Twist()
@@ -364,7 +365,6 @@ class Actions:
         self.reset_states()
 
     # Determines if looking for cube or dumbell
-
     def image_callback(self, msg):
         if self.init_flag:
             if self.read_text:
@@ -380,6 +380,6 @@ class Actions:
         rospy.spin()
             
 if __name__ == '__main__':
-    rospy.init_node('Perception')
+    rospy.init_node('RobotActions')
     follower = Actions()
     follower.run()
