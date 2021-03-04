@@ -48,21 +48,22 @@
 The goal of this project is to use a Q-learning algorithm to determine *optimal* actions (actions revolve around moving a certain dumbbell to a certain numbered block) for the robot to take to garner the most points possible given certain conditions. The Q-learning utilizes phantom movements until the Q-matrix converges and will use this matrix to provide action sequences for the robot to execute to reach its goal state. 
 
 ### High-level Description
-TODO: INSERT Q LEARNING INFO HERE (At a high-level, describe how you used reinforcement learning to solve the task of determining which dumbbells belong in front of each numbered block.
-)
-
+The Q-Learning algorithm provided in class was used to determine which actions should be taken sequentially to maximize rewards by moving the dumbells to the correct blocks. A q_matrix was created to keep track of actions the robot can take given its state, which is updated until it converges.
 After the Q-matrix converges, we extract an action sequence that will maximize the expected *reward* for the robot’s future actions and send it to the robot for it to execute. The robot_action node will receive this action sequence and will break down what it has to do to achieve this goal state. The robot_action node carries out three main tasks which include picking up a specified dumbbell, moving to a specific block location, and putting down a dumbbell. Once the robot is aware of what color dumbbell it must pick up and what numbered block it must move to, the robot will spring into action and ascertain where these two objects are located through scanning and color detection. If the desired object is not immediately in view, the robot will rotate until it finds its goal.
 
 ### Q-learning algorithm description
-TODO: INSERT Q LEARNING INFO HERE
+#### Selecting and executing actions for the robot (or phantom robot) to take:
+A table representing all the actions was created to be used to both access actions by index or "column number" and convert actions in the form of a tuple: (dumbell color to move, block to move to) to the column number that will be stored in the action matrix. *init_action_matrix* is initially called to create the action matrix. *random_action* is used to randomly select a valid action given the current state, which is then published to robot_action for the phantom robot to carry out.
 
- Describe how you accomplished each of the following components of the Q-learning algorithm in 1-3 sentences, and also describe what functions / sections of the code executed each of these components(1-3 sentences per function / portion of code):
-Selecting and executing actions for the robot (or phantom robot) to take
-Updating the Q-matrix
-Determining when to stop iterating through the Q-learning algorithm
-Executing the path most likely to lead to receiving a reward after the Q-matrix has converged on the simulated Turtlebot3 robot
+*init_action_matrix*: loops through each possible state of the robot and records if there is a valid action to transition to every other state. valid actions require one and only one dumbell to be moved, where moves can only be made from the origin to an unoccupied block, and no block can contain multiple dumbells.
 
+*random_action*: finds the list of possible valid actions the robot can take given its current state and randomly selects one. Publishes to robot_action as well.
 
+#### Updating the Q-matrix:
+The Q-matrix is updated by the *q_algo* function which stores the row values of the current state, then updates the q_matrix with the reward using the formula provided in class. It then compares the previous and new values to see if a significant change has occured. If not, the converging count is increased to indicate that the matrix is converging, however if a significant change occurs the count is reset.
+
+#### Determining when to stop iterating through the Q-learning algorithm. Executing the path most likely to lead to receiving a reward after the Q-matrix has converged on the simulated Turtlebot3 robot:
+To determine when to stop iterating through the Q-learning algorithm, a variable is used to keep track of how many iterations the q_matrix has essentially remained the same for. The *check_convergence* function checks this value and upon determining convergence, finds the best sequential actions for the robot at each stage and adds them to the final list of actions.
 
 ### Robot Perception
 
@@ -106,14 +107,14 @@ This was handled by simply lowering the arm and backing away from the dumbbell, 
 
 
 ### Challenges
-One of the major challenges that we ran into for *Robot Perception* was the inherent latency revolving around the recognition functionality of *keras_ocr* for Digit Recognition, as by the time the image feed was properly interpreted, the robot would be facing a completely new direction. To counteract this issue, we took a two-prong approach by addressing turning speed and optimizing image interpretation speed. We optimized interpretation speed by reducing the scale of the image, with a quadratic decrease in area, resulting in a decrease in accuracy but less overall processing. With regards to addressing turning speed, we significantly reduced the speed at which the robot was rotating at while searching for the correct block. We also created a complimentary function called detect_black() to ensure that the robot was at least facing the right direction before performing its digit recognition and rotation. Another robot perception was a small issue with discerning the number 1, as it could be interpreted as the letter l. This was quickly remedied by creating alternative values that would satisfy the conditionals for matching.  TODO: INSERT Q LEARNING CHALLENGES HERE
+One of the major challenges that we ran into for *Robot Perception* was the inherent latency revolving around the recognition functionality of *keras_ocr* for Digit Recognition, as by the time the image feed was properly interpreted, the robot would be facing a completely new direction. To counteract this issue, we took a two-prong approach by addressing turning speed and optimizing image interpretation speed. We optimized interpretation speed by reducing the scale of the image, with a quadratic decrease in area, resulting in a decrease in accuracy but less overall processing. With regards to addressing turning speed, we significantly reduced the speed at which the robot was rotating at while searching for the correct block. We also created a complimentary function called detect_black() to ensure that the robot was at least facing the right direction before performing its digit recognition and rotation. Another robot perception was a small issue with discerning the number 1, as it could be interpreted as the letter l. This was quickly remedied by creating alternative values that would satisfy the conditionals for matching. QLearning challenges we faced included accurately getting the rewards for the different robot actions and being able to detect Q-Learning convergence of our algorithm. Rewards were often wrong, or just zero for all actions which was difficult to debug with a limited understanding of what was causing these issues.
 
 ### Future Work
-If we had more time, we would determine a method to properly wait for *keras_ocr* recognition results before rotating and scanning more images. This method would revolve around inspecting the prediction groups results and comparing it to previous results for changes in prediction values and box positioning. We would also create a method to help the robot perception determine which face of the block it is recognizing, to help ensure it also orients itself towards the front of the block. TODO: INSERT Q LEARNING FUTURE WORK HERE
+If we had more time, we would determine a method to properly wait for *keras_ocr* recognition results before rotating and scanning more images. This method would revolve around inspecting the prediction groups results and comparing it to previous results for changes in prediction values and box positioning. We would also create a method to help the robot perception determine which face of the block it is recognizing, to help ensure it also orients itself towards the front of the block. We would also test the QLearning algorithm more thoroughly and integrate the robot perception/movement with the algorithm to have the robot follow the final action sequence determined.
 
 ### Takeaways
 - Robot perception and image analysis is very time and resource dependent, meaning that any implementation involving this must be very accommodating and take these limiting factors into account.
-- TODO
+- There were many unexpected errors that came up while debugging the Q-learning algorithm portion of the project, which ended up taking considerably more time to work through than even the algorithm development. 
 
 ### Gifs
 ![Robot Actions Gif](test_run.gif)
