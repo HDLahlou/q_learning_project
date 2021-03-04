@@ -50,6 +50,7 @@ The goal of this project is to use a Q-learning algorithm to determine *optimal*
 ### High-level Description
 TODO: INSERT Q LEARNING INFO HERE (At a high-level, describe how you used reinforcement learning to solve the task of determining which dumbbells belong in front of each numbered block.
 )
+
 After the Q-matrix converges, we extract an action sequence that will maximize the expected *reward* for the robot’s future actions and send it to the robot for it to execute. The robot_action node will receive this action sequence and will break down what it has to do to achieve this goal state. The robot_action node carries out three main tasks which include picking up a specified dumbbell, moving to a specific block location, and putting down a dumbbell. Once the robot is aware of what color dumbbell it must pick up and what numbered block it must move to, the robot will spring into action and ascertain where these two objects are located through scanning and color detection. If the desired object is not immediately in view, the robot will rotate until it finds its goal.
 
 ### Q-learning algorithm description
