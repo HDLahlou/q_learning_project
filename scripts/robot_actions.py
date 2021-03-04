@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import moveit_commander
 import moveit_msgs.msg
+from q_learning_project.msg import RobotMoveDBToBlock
 
 
 
@@ -70,9 +71,15 @@ class Actions:
         self.move_group_arm = moveit_commander.MoveGroupCommander("arm")
         self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
 
+        # Q Learning Action Subscriber
+        self.q_learning = rospy.Subscriber('/q_learning/robot_action', RobotMoveDBToBlock, self.q_learning_callback)
         # Flag for when everything is done initializing
         self.init_flag = True
 
+
+    def q_learning_callback(self, msg):
+        # robot_db, block_id
+        print(msg)
 
     # Callback function for reading scan data from Lidar and setting it in self object
     def scan_callback(self, msg):
