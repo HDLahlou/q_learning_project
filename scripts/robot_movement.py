@@ -71,14 +71,25 @@ class Movement:
         self.move_group_arm = moveit_commander.MoveGroupCommander("arm")
         self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
 
+        # Since the Q learning is for some reason no longer working, this is how we wouldve integrated it
         # Q Learning Action Subscriber
-        self.q_learning = rospy.Subscriber('/q_learning/robot_move', RobotMoveDBToBlock, self.q_learning_callback)
+        # self.actions_to_take = []
+        # self.action_index = 0
+        # self.q_learning = rospy.Subscriber('/q_learning/robot_move', RobotMoveDBToBlock, self.q_learning_callback)
+        #  We would set below flag to false until we got a command from Q learning results
+        # self.init_flag = False
+
         # Flag for when everything is done initializing
-        self.init_flag = False
+        self.init_flag = True
 
 
-    def q_learning_callback(self, msg):
+    # def q_learning_callback(self, msg):
         # robot_db, block_id
+        # self.actions_to_take.append(msg)
+        # We will set the action values into these values for the functions to access
+        # self.input_color = self.actions_to_take[self.action_index].robot_db
+        # self.input_num = self.actions_to_take[self.action_index].block_id
+
         print(msg)
 
     # Callback function for reading scan data from Lidar and setting it in self object
@@ -369,6 +380,10 @@ class Movement:
         rospy.sleep(1)
         vel_msg.linear.x = 0
         self.velocity_pub.publish(vel_msg)
+        # This is where we would select the new optimal action for the robot to make
+        # self.action_index += 1
+        # self.input_color = self.actions_to_take[self.action_index].robot_db
+        # self.input_num = self.actions_to_take[self.action_index].block_id
         self.reset_states()
 
     # Determines if looking for cube or dumbell
